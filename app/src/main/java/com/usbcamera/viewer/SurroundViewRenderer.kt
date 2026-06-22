@@ -108,16 +108,32 @@ class SurroundViewRenderer : GLSurfaceView.Renderer {
             onSurfaceTextureReady?.invoke(i, surfaceTextures[i]!!)
         }
 
-        // Create trapezoid quads with subdivisions for smooth warping
-        // More segments = smoother curved/warped appearance
-        // reverseTrapezoid = true for rotated sides (makes them fan outward correctly)
-        frontQuad = CurvedQuad(1.5f, 1.0f, 10, 0, 0.5f, false)       // normal trapezoid
-        rearQuad = CurvedQuad(1.5f, 1.0f, 10, 180, 0.5f, false)      // normal trapezoid
-        leftQuad = CurvedQuad(2.0f, 1.0f, 10, -90, 0.6f, true)       // REVERSED trapezoid
-        rightQuad = CurvedQuad(2.0f, 1.0f, 10, 90, 0.6f, true)       // REVERSED trapezoid
+        // Create trapezoid quads - sized to form complete rectangle at outer edges
+        // Vehicle: 0.8 wide x 1.2 tall
+        // Outer rectangle should be 3.0 wide x 3.0 tall
+        val vehicleWidth = 0.8f
+        val vehicleHeight = 1.2f
+        val outerWidth = 3.0f
+        val outerHeight = 3.0f
 
-        // Simple vehicle rectangle
-        vehicle = VehicleRect(0.8f, 1.2f)
+        // Front/rear trapezoids
+        val topBottomOuterWidth = outerWidth
+        val topBottomInnerWidth = vehicleWidth
+        val topBottomHeight = (outerHeight - vehicleHeight) / 2
+        val topBottomRatio = topBottomInnerWidth / topBottomOuterWidth
+
+        // Left/right trapezoids (rotated, so dimensions swap)
+        val leftRightOuterWidth = outerHeight  // becomes height after rotation
+        val leftRightInnerWidth = vehicleHeight
+        val leftRightHeight = (outerWidth - vehicleWidth) / 2
+        val leftRightRatio = leftRightInnerWidth / leftRightOuterWidth
+
+        frontQuad = CurvedQuad(topBottomOuterWidth, topBottomHeight, 10, 0, topBottomRatio, false)
+        rearQuad = CurvedQuad(topBottomOuterWidth, topBottomHeight, 10, 180, topBottomRatio, false)
+        leftQuad = CurvedQuad(leftRightOuterWidth, leftRightHeight, 10, -90, leftRightRatio, true)
+        rightQuad = CurvedQuad(leftRightOuterWidth, leftRightHeight, 10, 90, leftRightRatio, true)
+
+        vehicle = VehicleRect(vehicleWidth, vehicleHeight)
 
         Log.i(TAG, "OpenGL surface created")
     }
@@ -148,20 +164,23 @@ class SurroundViewRenderer : GLSurfaceView.Renderer {
         // Draw camera quads (flat, top-down)
         GLES20.glUseProgram(cameraProgram)
 
-        // Vehicle: 0.8f wide × 1.2f tall
-        // Vehicle edges: left=-0.4, right=+0.4, top=+0.6, bottom=-0.6
+        // Position trapezoids so outer edges form complete rectangle
+        val vehicleWidth = 0.8f
+        val vehicleHeight = 1.2f
+        val topBottomHeight = (3.0f - vehicleHeight) / 2
+        val leftRightHeight = (3.0f - vehicleWidth) / 2
 
-        // Front camera (top) - height=1.0, so center at 0.6 + 0.5 = 1.1
-        drawCameraQuad(frontQuad, textureHandles[0], 0f, 1.1f, 0f, 0f)
+        // Front camera: center at vehicle_top + half_height
+        drawCameraQuad(frontQuad, textureHandles[0], 0f, vehicleHeight/2 + topBottomHeight/2, 0f, 0f)
 
-        // Rear camera (bottom) - height=1.0, so center at -0.6 - 0.5 = -1.1
-        drawCameraQuad(rearQuad, textureHandles[2], 0f, -1.1f, 0f, 180f)
+        // Rear camera: center at vehicle_bottom - half_height
+        drawCameraQuad(rearQuad, textureHandles[2], 0f, -vehicleHeight/2 - topBottomHeight/2, 0f, 180f)
 
-        // Left camera (rotated, width becomes 1.0 after rotation) - center at -0.4 - 0.5 = -0.9
-        drawCameraQuad(leftQuad, textureHandles[1], -0.9f, 0f, 0f, -90f)
+        // Left camera: center at vehicle_left - half_width
+        drawCameraQuad(leftQuad, textureHandles[1], -vehicleWidth/2 - leftRightHeight/2, 0f, 0f, -90f)
 
-        // Right camera (rotated, width becomes 1.0 after rotation) - center at 0.4 + 0.5 = 0.9
-        drawCameraQuad(rightQuad, textureHandles[3], 0.9f, 0f, 0f, 90f)
+        // Right camera: center at vehicle_right + half_width
+        drawCameraQuad(rightQuad, textureHandles[3], vehicleWidth/2 + leftRightHeight/2, 0f, 0f, 90f)
 
         // Draw vehicle in center
         GLES20.glUseProgram(vehicleProgram)
@@ -379,10 +398,10 @@ class VehicleRect(private val width: Float, private val height: Float) {
         )
 
         val texCoords = floatArrayOf(
-            0f, 0f,    // Front-left
-            1f, 0f,    // Front-right
-            1f, 1f,    // Rear-right
-            0f, 1f     // Rear-left
+            0f, 1f,    // Front-left (flipped vertically)
+            1f, 1f,    // Front-right (flipped vertically)
+            1f, 0f,    // Rear-right (flipped vertically)
+            0f, 0f     // Rear-left (flipped vertically)
         )
 
         vertexBuffer = ByteBuffer.allocateDirect(vertices.size * 4)
