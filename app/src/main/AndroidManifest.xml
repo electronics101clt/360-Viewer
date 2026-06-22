@@ -14,6 +14,15 @@
             android:name=".MainActivity"
             android:screenOrientation="landscape"
             android:exported="true"
+            android:label="360 Viewer (Grid)"
+            android:theme="@android:style/Theme.Holo.NoActionBar.Fullscreen">
+        </activity>
+
+        <activity
+            android:name=".SurroundViewActivity"
+            android:screenOrientation="landscape"
+            android:exported="true"
+            android:label="360 Viewer (3D)"
             android:theme="@android:style/Theme.Holo.NoActionBar.Fullscreen">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
