@@ -1,4 +1,4 @@
-# USB Camera Viewer
+# 360 Viewer
 
 4-camera vehicle surround view application for Android head units.
 
