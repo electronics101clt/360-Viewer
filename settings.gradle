@@ -1,0 +1,2 @@
+rootProject.name = "USBCameraViewer"
+include ':app'
