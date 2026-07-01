@@ -74,11 +74,13 @@ class SurroundViewRenderer : GLSurfaceView.Renderer {
     private val modelMatrix = FloatArray(16)
 
     // Curved quads for each camera
-    private lateinit var frontQuad: CurvedQuad
-    private lateinit var rearQuad: CurvedQuad
     private lateinit var leftQuad: CurvedQuad
     private lateinit var rightQuad: CurvedQuad
+    private lateinit var reverseRect: SimpleRect  // Flat rectangle for reverse camera
     private lateinit var vehicle: VehicleRect
+
+    // Frame counter for priority rendering
+    private var frameCount = 0
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0.1f, 0.1f, 0.1f, 1.0f)
@@ -116,22 +118,18 @@ class SurroundViewRenderer : GLSurfaceView.Renderer {
         val outerWidth = 3.0f
         val outerHeight = 3.0f
 
-        // Front/rear trapezoids
-        val topBottomOuterWidth = outerWidth
-        val topBottomInnerWidth = vehicleWidth
-        val topBottomHeight = (outerHeight - vehicleHeight) / 2
-        val topBottomRatio = topBottomInnerWidth / topBottomOuterWidth
-
         // Left/right trapezoids (rotated, so dimensions swap)
         val leftRightOuterWidth = outerHeight  // becomes height after rotation
         val leftRightInnerWidth = vehicleHeight
         val leftRightHeight = (outerWidth - vehicleWidth) / 2
         val leftRightRatio = leftRightInnerWidth / leftRightOuterWidth
 
-        frontQuad = CurvedQuad(topBottomOuterWidth, topBottomHeight, 10, 0, topBottomRatio, false)
-        rearQuad = CurvedQuad(topBottomOuterWidth, topBottomHeight, 10, 180, topBottomRatio, false)
+        // Only create left and right trapezoids (front removed)
         leftQuad = CurvedQuad(leftRightOuterWidth, leftRightHeight, 10, -90, leftRightRatio, true)
         rightQuad = CurvedQuad(leftRightOuterWidth, leftRightHeight, 10, 90, leftRightRatio, true)
+
+        // Simple rectangle for reverse camera (right half of screen)
+        reverseRect = SimpleRect(2.8f, 2.8f)
 
         vehicle = VehicleRect(vehicleWidth, vehicleHeight)
 
@@ -156,10 +154,24 @@ class SurroundViewRenderer : GLSurfaceView.Renderer {
     override fun onDrawFrame(gl: GL10?) {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
 
-        // Update all camera textures
-        for (i in 0..3) {
-            surfaceTextures[i]?.updateTexImage()
+        frameCount++
+
+        // Update camera textures with priority:
+        // - Left (position 1) and Right (position 3): HIGH PRIORITY (every frame)
+        // - Reverse (position 2): LOW PRIORITY (every 3rd frame for ~10 FPS)
+        surfaceTextures[1]?.updateTexImage()  // Left CVBS 1
+        surfaceTextures[3]?.updateTexImage()  // Right CVBS 2
+
+        if (frameCount % 3 == 0) {
+            surfaceTextures[2]?.updateTexImage()  // Reverse camera (lower priority)
         }
+
+        // Get current viewport dimensions
+        val viewportWidth = GLES20.glGetIntegerv(GLES20.GL_VIEWPORT)?.get(2) ?: 1024
+        val viewportHeight = GLES20.glGetIntegerv(GLES20.GL_VIEWPORT)?.get(3) ?: 600
+
+        // ========== LEFT HALF: Trapezoids + Vehicle ==========
+        GLES20.glViewport(0, 0, viewportWidth / 2, viewportHeight)
 
         // Draw camera quads (flat, top-down)
         GLES20.glUseProgram(cameraProgram)
@@ -167,14 +179,7 @@ class SurroundViewRenderer : GLSurfaceView.Renderer {
         // Position trapezoids so outer edges form complete rectangle
         val vehicleWidth = 0.8f
         val vehicleHeight = 1.2f
-        val topBottomHeight = (3.0f - vehicleHeight) / 2
         val leftRightHeight = (3.0f - vehicleWidth) / 2
-
-        // Front camera: center at vehicle_top + half_height
-        drawCameraQuad(frontQuad, textureHandles[0], 0f, vehicleHeight/2 + topBottomHeight/2, 0f, 0f)
-
-        // Rear camera: center at vehicle_bottom - half_height
-        drawCameraQuad(rearQuad, textureHandles[2], 0f, -vehicleHeight/2 - topBottomHeight/2, 0f, 180f)
 
         // Left camera: center at vehicle_left - half_width
         drawCameraQuad(leftQuad, textureHandles[1], -vehicleWidth/2 - leftRightHeight/2, 0f, 0f, -90f)
@@ -185,9 +190,21 @@ class SurroundViewRenderer : GLSurfaceView.Renderer {
         // Draw vehicle in center
         GLES20.glUseProgram(vehicleProgram)
         drawVehicle()
+
+        // ========== RIGHT HALF: Reverse Camera ==========
+        GLES20.glViewport(viewportWidth / 2, 0, viewportWidth / 2, viewportHeight)
+
+        GLES20.glUseProgram(cameraProgram)
+        drawCameraQuad(reverseRect, textureHandles[2], 0f, 0f, 0f, 180f)  // Reverse camera
     }
 
-    private fun drawCameraQuad(quad: CurvedQuad, textureHandle: Int, x: Float, y: Float, z: Float, rotation: Float) {
+    private fun GLES20.glGetIntegerv(pname: Int): IntArray? {
+        val result = IntArray(4)
+        GLES20.glGetIntegerv(pname, result, 0)
+        return result
+    }
+
+    private fun drawCameraQuad(quad: Any, textureHandle: Int, x: Float, y: Float, z: Float, rotation: Float) {
         Matrix.setIdentityM(modelMatrix, 0)
         Matrix.translateM(modelMatrix, 0, x, y, z)
         Matrix.rotateM(modelMatrix, 0, rotation, 0f, 0f, 1f)  // Rotate around Z for top-down
@@ -206,7 +223,10 @@ class SurroundViewRenderer : GLSurfaceView.Renderer {
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureHandle)
         GLES20.glUniform1i(textureUniform, 0)
 
-        quad.draw(cameraProgram)
+        when (quad) {
+            is CurvedQuad -> quad.draw(cameraProgram)
+            is SimpleRect -> quad.draw(cameraProgram)
+        }
     }
 
     private fun drawVehicle() {
@@ -428,6 +448,60 @@ class VehicleRect(private val width: Float, private val height: Float) {
         GLES20.glVertexAttribPointer(texCoordHandle, 2, GLES20.GL_FLOAT, false, 0, texCoordBuffer)
 
         // Draw filled car body
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_FAN, 0, 4)
+
+        GLES20.glDisableVertexAttribArray(positionHandle)
+        GLES20.glDisableVertexAttribArray(texCoordHandle)
+    }
+}
+
+// Simple flat rectangle for reverse camera display (no trapezoid warping)
+class SimpleRect(private val width: Float, private val height: Float) {
+    private val vertexBuffer: FloatBuffer
+    private val texCoordBuffer: FloatBuffer
+
+    init {
+        val w = width / 2
+        val h = height / 2
+
+        val vertices = floatArrayOf(
+            // Simple rectangle in XY plane
+            -w, -h, 0f,      // Bottom-left
+            w, -h, 0f,       // Bottom-right
+            w, h, 0f,        // Top-right
+            -w, h, 0f        // Top-left
+        )
+
+        val texCoords = floatArrayOf(
+            0f, 1f,    // Bottom-left
+            1f, 1f,    // Bottom-right
+            1f, 0f,    // Top-right
+            0f, 0f     // Top-left
+        )
+
+        vertexBuffer = ByteBuffer.allocateDirect(vertices.size * 4)
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
+            .put(vertices)
+        vertexBuffer.position(0)
+
+        texCoordBuffer = ByteBuffer.allocateDirect(texCoords.size * 4)
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
+            .put(texCoords)
+        texCoordBuffer.position(0)
+    }
+
+    fun draw(program: Int) {
+        val positionHandle = GLES20.glGetAttribLocation(program, "aPosition")
+        val texCoordHandle = GLES20.glGetAttribLocation(program, "aTexCoord")
+
+        GLES20.glEnableVertexAttribArray(positionHandle)
+        GLES20.glVertexAttribPointer(positionHandle, 3, GLES20.GL_FLOAT, false, 0, vertexBuffer)
+
+        GLES20.glEnableVertexAttribArray(texCoordHandle)
+        GLES20.glVertexAttribPointer(texCoordHandle, 2, GLES20.GL_FLOAT, false, 0, texCoordBuffer)
+
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_FAN, 0, 4)
 
         GLES20.glDisableVertexAttribArray(positionHandle)

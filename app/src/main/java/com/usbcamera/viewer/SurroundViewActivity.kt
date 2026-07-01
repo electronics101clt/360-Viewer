@@ -67,28 +67,31 @@ class SurroundViewActivity : Activity() {
         try {
             val allCameras = cameraManager.cameraIdList.toList()
 
-            // USB cameras (ID >= 2)
-            val usbCameras = allCameras.filter { id ->
-                id.toIntOrNull()?.let { it >= 2 } ?: false
-            }
+            Log.i(TAG, "All detected cameras: $allCameras")
 
-            val backCamera = allCameras.find { id ->
-                val chars = cameraManager.getCameraCharacteristics(id)
-                chars.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
-            }
+            // CVBS inputs - typically show up as camera IDs
+            // User needs to verify which IDs correspond to:
+            // - CVBS 1 (left blind spot camera)
+            // - CVBS 2 (right blind spot camera)
+            // - Reverse camera input
 
-            val frontCamera = allCameras.find { id ->
-                val chars = cameraManager.getCameraCharacteristics(id)
-                chars.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
-            }
+            // TODO: Replace these with actual CVBS camera IDs from your device
+            // Check logcat for "All detected cameras" to find the correct IDs
+            val cvbs1CameraId = allCameras.getOrNull(0)  // CVBS 1 - Left camera
+            val cvbs2CameraId = allCameras.getOrNull(1)  // CVBS 2 - Right camera
+            val reverseCameraId = allCameras.getOrNull(2) // Reverse camera input
 
-            // Assign to positions: 0=front, 1=left, 2=rear, 3=right
-            cameraAssignments[0] = frontCamera
-            cameraAssignments[1] = usbCameras.getOrNull(0)
-            cameraAssignments[2] = backCamera
-            cameraAssignments[3] = usbCameras.getOrNull(1)
+            // Assign to positions:
+            // Position 0 (front) = REMOVED (not used)
+            // Position 1 (left)  = CVBS 1 (left blind spot)
+            // Position 2 (rear)  = Reverse camera (lower priority, right half of screen)
+            // Position 3 (right) = CVBS 2 (right blind spot)
+            cameraAssignments[0] = null  // Front removed
+            cameraAssignments[1] = cvbs1CameraId   // CVBS 1 - Left
+            cameraAssignments[2] = reverseCameraId // Reverse camera
+            cameraAssignments[3] = cvbs2CameraId   // CVBS 2 - Right
 
-            Log.i(TAG, "Camera assignments: ${cameraAssignments.contentToString()}")
+            Log.i(TAG, "Camera assignments - Left: $cvbs1CameraId, Right: $cvbs2CameraId, Reverse: $reverseCameraId")
 
         } catch (e: Exception) {
             Log.e(TAG, "Error assigning cameras", e)
